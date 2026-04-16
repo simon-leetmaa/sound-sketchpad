@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sound Sketchpad</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script>
+// Smart loader: bundled copy first, CDN fallback.
+window.SOUNDFONT_READY = new Promise((resolve) => {
+  window.SOUNDS_BLOCKS_LOCAL = false;
+  const local = document.createElement("script");
+  local.src = "vendor/soundfont-player.min.js";
+  local.onload = () => { window.SOUNDS_BLOCKS_LOCAL = true; resolve(); };
+  local.onerror = () => {
+    const cdn = document.createElement("script");
+    cdn.src = "https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js";
+    cdn.onload = () => resolve();
+    cdn.onerror = () => resolve();
+    document.head.appendChild(cdn);
+  };
+  document.head.appendChild(local);
+});
+</script>
+
+<style>
+  :root {
+    --paper:     #f3ebdb;
+    --paper-2:   #ebe0cb;
+    --ink:       #1c1712;
+    --ink-soft:  #5a4f42;
+    --muted:     #9a8f7c;
+    --line:      #d9cdb4;
+    --line-soft: #e6dcc6;
+    --accent:    #c24a1f;
+    --accent-2:  #a33a14;
+
+    --display: "Fraunces", ui-serif, Georgia, serif;
+    --mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    /* faint radial paper glow */
+    background-image:
+      radial-gradient(ellipse 120% 80% at 50% 0%, #fbf4e2 0%, transparent 60%),
+      radial-gradient(ellipse 80% 60% at 50% 120%, #e8dcbf 0%, transparent 70%);
+  }
+
+  body::before {
+    /* subtle grain overlay — SVG data URI so the file stays a single HTML */
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    opacity: 0.06;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    z-index: 0;
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 56px 32px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    animation: rise 600ms cubic-bezier(.2,.7,.2,1) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* --- Caption --- */
+  .caption {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .caption .dot {
+    display: inline-block;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin: 0 6px;
+    vertical-align: middle;
+  }
+  .caption .sep {
+    display: inline-block;
+    width: 14px;
+    height: 1px;
+    background: var(--line);
+    margin: 0 10px;
+    vertical-align: middle;
+  }
+
+  /* --- Grid canvas --- */
+  .stage {
+    position: relative;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 18px 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 10;
+    cursor: crosshair;
+  }
+
+  /* --- Sound chips --- */
+  .sounds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    justify-content: center;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s;
+    user-select: none;
+  }
+  .chip:hover {
+    color: var(--ink);
+    background: #ede2cc;
+  }
+  .chip .swatch {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--c);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.02);
+  }
+  .chip.active {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .chip.active .swatch {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+  }
+
+  /* --- Actions --- */
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+  }
+  .icon-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .icon-btn:hover {
+    color: var(--ink);
+    border-color: var(--ink-soft);
+  }
+  .icon-btn svg { width: 18px; height: 18px; }
+
+  #playBtn {
+    width: 68px; height: 68px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: var(--paper);
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: background 0.15s, transform 0.15s;
+    box-shadow: 0 12px 28px -14px rgba(194, 74, 31, 0.7);
+  }
+  #playBtn:hover { background: var(--accent-2); transform: scale(1.04); }
+  #playBtn:active { transform: scale(0.98); }
+  #playBtn svg { width: 22px; height: 22px; transition: transform 0.15s; }
+  #playBtn.playing { background: var(--ink); }
+
+  /* --- Footer status --- */
+  .status {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    min-height: 14px;
+  }
+  .status.loading { color: var(--accent); }
+
+  /* --- Hint text --- */
+  .hint {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    margin-top: -20px;
+  }
+</style>
+</head>
+<body>
+
+<main>
+  <div class="caption">
+    click <span class="dot"></span> place
+    <span class="sep"></span>
+    click again <span class="dot"></span> remove
+  </div>
+
+  <div class="stage">
+    <canvas id="grid"></canvas>
+  </div>
+
+  <div class="sounds" id="sounds"></div>
+
+  <div class="actions">
+    <button class="icon-btn" id="clearBtn" title="Clear">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 6l12 12M18 6L6 18"/>
+      </svg>
+    </button>
+    <button id="playBtn" title="Play · Space">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M7 5v14l12-7z"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="saveBtn" title="Save .wav">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/>
+        <path d="M7 10l5 5 5-5"/>
+        <path d="M4 19h16"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="status" id="status"></div>
+</main>
+
+<script>
+"use strict";
+
+// ============================================================
+// Config — deliberately fixed. The whole point of this rewrite
+// is to not have knobs.
+// ============================================================
+const DURATION = 1.5;                              // seconds per sequence
+const COLS = 16;                                   // time slots
+const SCALE_MIDI = [48, 51, 53, 55, 58, 60, 63, 65, 67, 70]; // C pentatonic minor, 2 octaves (low→high)
+const ROWS = SCALE_MIDI.length;
+
+const INSTRUMENTS = [
+  { key: "marimba",           name: "Marimba",    color: "#1f6473", release: 0.7  },
+  { key: "kalimba",           name: "Kalimba",    color: "#3b6f43", release: 0.9  },
+  { key: "glockenspiel",      name: "Glocken",    color: "#cf8a22", release: 0.8  },
+  { key: "music_box",         name: "Music Box",  color: "#b95757", release: 1.0  },
+  { key: "vibraphone",        name: "Vibes",      color: "#3a5d91", release: 0.9  },
+  { key: "electric_piano_1",  name: "E-Piano",    color: "#7b5496", release: 0.8  },
+];
+const instrumentByKey = Object.fromEntries(INSTRUMENTS.map(i => [i.key, i]));
+
+// ============================================================
+// State
+// ============================================================
+const state = {
+  dots: [],                                // { col, row, key }
+  active: INSTRUMENTS[0].key,
+};
+
+// ============================================================
+// Soundfont loader
+// ============================================================
+const LOADED = new Map();
+const PENDING = new Map();
+let _ctxKey = 0;
+function ctxKey(ctx){ if (!ctx._sb) ctx._sb = ++_ctxKey; return ctx._sb; }
+
+async function loadInstrument(ctx, key){
+  await window.SOUNDFONT_READY;
+  const k = ctxKey(ctx) + "|" + key;
+  if (LOADED.has(k)) return LOADED.get(k);
+  if (PENDING.has(k)) return PENDING.get(k);
+  const opts = { soundfont: "MusyngKite" };
+  if (window.SOUNDS_BLOCKS_LOCAL) opts.nameToUrl = n => `soundfonts/MusyngKite/${n}-mp3.js`;
+  const p = window.Soundfont.instrument(ctx, key, opts)
+    .then(inst => { LOADED.set(k, inst); PENDING.delete(k); return inst; })
+    .catch(err => { PENDING.delete(k); console.error("load fail", key, err); throw err; });
+  PENDING.set(k, p);
+  return p;
+}
+function getLoaded(ctx, key){ return LOADED.get(ctxKey(ctx) + "|" + key); }
+
+// ============================================================
+// Canvas rendering
+// ============================================================
+const canvas = document.getElementById("grid");
+const ctx2d = canvas.getContext("2d");
+let W = 0, H = 0, cellW = 0, cellH = 0;
+
+function getCSS(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+function resize(){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width  = Math.max(1, Math.round(rect.width  * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  W = rect.width; H = rect.height;
+  cellW = W / COLS;
+  cellH = H / ROWS;
+  draw();
+}
+
+function cellCenter(col, row){
+  return { x: (col + 0.5) * cellW, y: (ROWS - 1 - row + 0.5) * cellH };
+}
+
+function draw(){
+  ctx2d.clearRect(0, 0, W, H);
+
+  const line     = getCSS("--line");
+  const lineSoft = getCSS("--line-soft");
+  const accent   = getCSS("--accent");
+  const inkSoft  = getCSS("--ink-soft");
+
+  // Beat markers: a thicker line every 4 beats
+  for (let i = 0; i <= COLS; i++){
+    const x = i * cellW;
+    ctx2d.strokeStyle = (i % 4 === 0) ? line : lineSoft;
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    ctx2d.moveTo(x + 0.5, 0);
+    ctx2d.lineTo(x + 0.5, H);
+    ctx2d.stroke();
+  }
+
+  // Tonic rows (C3, C4) get a faint tint so you always know where "home" is.
+  for (let r = 0; r < ROWS; r++){
+    const midi = SCALE_MIDI[r];
+    if (midi % 12 === 0){ // C
+      const yTop = (ROWS - 1 - r) * cellH;
+      ctx2d.fillStyle = "rgba(194, 74, 31, 0.05)";
+      ctx2d.fillRect(0, yTop, W, cellH);
+    }
+  }
+
+  // Faint row dividers
+  for (let r = 1; r < ROWS; r++){
+    const y = r * cellH;
+    ctx2d.strokeStyle = lineSoft;
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    ctx2d.moveTo(0, y + 0.5);
+    ctx2d.lineTo(W, y + 0.5);
+    ctx2d.stroke();
+  }
+
+  // Dots — flat solid fills.
+  const r = Math.min(cellW, cellH) * 0.36;
+  for (const d of state.dots){
+    const inst = instrumentByKey[d.key];
+    if (!inst) continue;
+    const { x, y } = cellCenter(d.col, d.row);
+    ctx2d.fillStyle = inst.color;
+    ctx2d.beginPath();
+    ctx2d.arc(x, y, r, 0, Math.PI * 2);
+    ctx2d.fill();
+  }
+
+  // Playhead
+  if (play.running){
+    const t = play.elapsedT();
+    if (t >= 0 && t <= 1){
+      const x = t * W;
+      ctx2d.strokeStyle = accent;
+      ctx2d.lineWidth = 1.2;
+      ctx2d.globalAlpha = 0.85;
+      ctx2d.beginPath();
+      ctx2d.moveTo(x + 0.5, 0);
+      ctx2d.lineTo(x + 0.5, H);
+      ctx2d.stroke();
+      ctx2d.globalAlpha = 1;
+    }
+  }
+}
+
+// ============================================================
+// Interaction
+// ============================================================
+function cellAt(x, y){
+  const col = Math.floor(x / cellW);
+  const rowFromTop = Math.floor(y / cellH);
+  const row = ROWS - 1 - rowFromTop;
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
+  return { col, row };
+}
+
+canvas.addEventListener("mousedown", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const c = cellAt(e.clientX - rect.left, e.clientY - rect.top);
+  if (!c) return;
+  const existing = state.dots.find(d => d.col === c.col && d.row === c.row);
+  if (existing) {
+    state.dots = state.dots.filter(d => d !== existing);
+  } else {
+    state.dots.push({ col: c.col, row: c.row, key: state.active });
+  }
+  draw();
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space"){
+    e.preventDefault();
+    play.running ? stopPlayback() : startPlayback();
+  }
+  // 1–6 picks an instrument
+  const n = parseInt(e.key, 10);
+  if (!isNaN(n) && n >= 1 && n <= INSTRUMENTS.length){
+    setActive(INSTRUMENTS[n - 1].key);
+  }
+});
+
+// ============================================================
+// Sound chips
+// ============================================================
+function renderChips(){
+  const root = document.getElementById("sounds");
+  root.innerHTML = "";
+  INSTRUMENTS.forEach((inst, i) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (state.active === inst.key ? " active" : "");
+    b.style.setProperty("--c", inst.color);
+    b.innerHTML = `<span class="swatch"></span>${inst.name}`;
+    b.addEventListener("click", () => setActive(inst.key));
+    root.appendChild(b);
+  });
+}
+function setActive(key){
+  if (!instrumentByKey[key]) return;
+  state.active = key;
+  renderChips();
+}
+
+// ============================================================
+// Audio
+// ============================================================
+let audio = null;
+function ensureAudio(){
+  if (audio) return audio;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  const master = ctx.createGain();
+  master.gain.value = 0.85;
+  master.connect(ctx.destination);
+
+  // A light, warm convolution reverb so notes don't feel dry.
+  const reverb = ctx.createConvolver();
+  reverb.buffer = makeImpulse(ctx, 1.6, 3.2);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.22;
+  const hiCut = ctx.createBiquadFilter();
+  hiCut.type = "highshelf";
+  hiCut.frequency.value = 3500;
+  hiCut.gain.value = -5;
+  master.connect(reverb);
+  reverb.connect(hiCut);
+  hiCut.connect(wet);
+  wet.connect(ctx.destination);
+
+  audio = { ctx, master };
+  return audio;
+}
+function makeImpulse(ctx, sec = 1.6, decay = 3.2){
+  const len = Math.floor(ctx.sampleRate * sec);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++){
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < len; i++){
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+function midiToNoteName(m){
+  const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  return names[m % 12] + (Math.floor(m / 12) - 1);
+}
+
+// Schedule a single note voice. Works against live or offline contexts.
+function spawnVoice(ctx, dest, key, midi, tStart, tSustainEnd, tEnd){
+  const inst = getLoaded(ctx, key);
+  if (!inst) return { kill(){} };
+  const env = ctx.createGain();
+  env.gain.value = 0;
+  env.connect(dest);
+
+  const note = inst.play(midiToNoteName(midi), tStart, {
+    duration: Math.max(0.05, tEnd - tStart),
+    gain: 1.0,
+    destination: env,
+  });
+
+  env.gain.setValueAtTime(1, tStart);
+  env.gain.setValueAtTime(1, tSustainEnd);
+  env.gain.linearRampToValueAtTime(0, tEnd);
+
+  return { kill(t){ try { note && note.stop && note.stop(t + 0.05); } catch(e){} } };
+}
+
+// Group dots by column (chord awareness) and schedule them.
+function schedule(ctx, dest, dots){
+  const t0 = ctx.currentTime + 0.05;
+  const sorted = [...dots].sort((a, b) => a.col - b.col);
+  const voices = [];
+  for (let i = 0; i < sorted.length; i++){
+    const d = sorted[i];
+    let j = i + 1;
+    while (j < sorted.length && sorted[j].col === d.col) j++;
+    const nextCol = j < sorted.length ? sorted[j].col : COLS;
+    const tStart = t0 + (d.col / COLS) * DURATION;
+    const tSustainEnd = t0 + (nextCol / COLS) * DURATION;
+    const inst = instrumentByKey[d.key];
+    const tEnd = tSustainEnd + (inst?.release ?? 0.5);
+    voices.push(spawnVoice(ctx, dest, d.key, SCALE_MIDI[d.row], tStart, tSustainEnd, tEnd));
+  }
+  return voices;
+}
+
+// ============================================================
+// Playback
+// ============================================================
+const play = {
+  running: false,
+  startCtxTime: 0,
+  voices: [],
+  raf: 0,
+  elapsedT(){ if (!audio) return -1; return (audio.ctx.currentTime - this.startCtxTime) / DURATION; }
+};
+
+async function startPlayback(){
+  const a = ensureAudio();
+  if (a.ctx.state === "suspended") await a.ctx.resume();
+  if (state.dots.length === 0) return;
+
+  const needed = [...new Set(state.dots.map(d => d.key))];
+  setStatus("loading…", true);
+  try { await Promise.all(needed.map(k => loadInstrument(a.ctx, k))); }
+  catch { setStatus("couldn’t load sounds"); return; }
+  setStatus("");
+
+  a.master.gain.cancelScheduledValues(a.ctx.currentTime);
+  a.master.gain.setValueAtTime(0.85, a.ctx.currentTime);
+  play.voices = schedule(a.ctx, a.master, state.dots);
+  play.running = true;
+  play.startCtxTime = a.ctx.currentTime + 0.05;
+  document.getElementById("playBtn").classList.add("playing");
+
+  const maxRelease = Math.max(...INSTRUMENTS.map(i => i.release));
+  const tick = () => {
+    if (!play.running) return;
+    draw();
+    if (play.elapsedT() >= 1 + maxRelease / DURATION){ stopPlayback(); return; }
+    play.raf = requestAnimationFrame(tick);
+  };
+  play.raf = requestAnimationFrame(tick);
+}
+function stopPlayback(){
+  play.running = false;
+  cancelAnimationFrame(play.raf);
+  document.getElementById("playBtn").classList.remove("playing");
+  if (!audio) return;
+  const now = audio.ctx.currentTime;
+  audio.master.gain.cancelScheduledValues(now);
+  audio.master.gain.setValueAtTime(audio.master.gain.value, now);
+  audio.master.gain.linearRampToValueAtTime(0, now + 0.04);
+  for (const v of play.voices) v.kill(now);
+  play.voices = [];
+  audio.master.gain.setValueAtTime(0.85, now + 0.08);
+  draw();
+}
+function setStatus(text, loading = false){
+  const s = document.getElementById("status");
+  s.textContent = text;
+  s.className = "status" + (loading ? " loading" : "");
+}
+
+document.getElementById("playBtn").addEventListener("click", () => {
+  play.running ? stopPlayback() : startPlayback();
+});
+document.getElementById("clearBtn").addEventListener("click", () => {
+  state.dots = []; draw();
+});
+
+// ============================================================
+// WAV export (offline render)
+// ============================================================
+async function exportWAV(){
+  if (state.dots.length === 0){ setStatus("add some notes first"); setTimeout(()=>setStatus(""), 1500); return; }
+  setStatus("rendering…", true);
+  try {
+    const sr = 44100;
+    const maxRel = Math.max(...INSTRUMENTS.map(i => i.release));
+    const lenSec = DURATION + maxRel + 0.2;
+    const off = new OfflineAudioContext(2, Math.ceil(sr * lenSec), sr);
+
+    const master = off.createGain();
+    master.gain.value = 0.85;
+    master.connect(off.destination);
+    const reverb = off.createConvolver();
+    reverb.buffer = makeImpulse(off);
+    const wet = off.createGain();
+    wet.gain.value = 0.22;
+    const hiCut = off.createBiquadFilter();
+    hiCut.type = "highshelf"; hiCut.frequency.value = 3500; hiCut.gain.value = -5;
+    master.connect(reverb); reverb.connect(hiCut); hiCut.connect(wet); wet.connect(off.destination);
+
+    const needed = [...new Set(state.dots.map(d => d.key))];
+    await Promise.all(needed.map(k => loadInstrument(off, k)));
+    schedule(off, master, state.dots);
+    const rendered = await off.startRendering();
+    downloadBlob(new Blob([bufferToWav(rendered)], {type:"audio/wav"}), `sounds-${Date.now()}.wav`);
+    setStatus("");
+  } catch (err){
+    console.error(err);
+    setStatus("export failed");
+  }
+}
+function bufferToWav(buffer){
+  const nCh = buffer.numberOfChannels, sr = buffer.sampleRate;
+  const bits = 16, bps = bits / 8, block = nCh * bps;
+  const dataSize = buffer.length * block;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); view.setUint32(4, 36 + dataSize, true); ws(8,"WAVE"); ws(12,"fmt ");
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, nCh, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * block, true);
+  view.setUint16(32, block, true); view.setUint16(34, bits, true);
+  ws(36, "data"); view.setUint32(40, dataSize, true);
+  let o = 44;
+  const chs = []; for (let c = 0; c < nCh; c++) chs.push(buffer.getChannelData(c));
+  for (let i = 0; i < buffer.length; i++){
+    for (let c = 0; c < nCh; c++){
+      let s = Math.max(-1, Math.min(1, chs[c][i]));
+      view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      o += 2;
+    }
+  }
+  return ab;
+}
+function downloadBlob(blob, filename){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+document.getElementById("saveBtn").addEventListener("click", exportWAV);
+
+// ============================================================
+// Boot
+// ============================================================
+renderChips();
+window.addEventListener("resize", resize);
+resize();
+</script>
+</body>
+</html>
