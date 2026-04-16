@@ -170,6 +170,82 @@ window.SOUNDFONT_READY = new Promise((resolve) => {
     box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
   }
 
+  /* --- Controls (octave + tempo) --- */
+  .controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 36px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: -8px;
+  }
+  .ctrl {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ctrl .label {
+    color: var(--muted);
+  }
+  .mini {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+    letter-spacing: 0;
+    cursor: pointer;
+    display: grid; place-items: center;
+    padding: 0;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .mini:hover { color: var(--ink); border-color: var(--ink-soft); }
+  .mini:active { transform: scale(0.94); }
+
+  .readout {
+    min-width: 18px;
+    text-align: center;
+    color: var(--ink);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout.tempo-val {
+    min-width: 52px;
+    text-align: left;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 110px;
+    background: transparent;
+    cursor: pointer;
+    padding: 8px 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 1px; background: var(--line);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); border: none;
+    margin-top: -4.5px;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 1px; background: var(--line);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); border: none;
+  }
+
   /* --- Actions --- */
   .actions {
     display: flex;
@@ -246,6 +322,21 @@ window.SOUNDFONT_READY = new Promise((resolve) => {
 
   <div class="sounds" id="sounds"></div>
 
+  <div class="controls">
+    <div class="ctrl">
+      <span class="label">oct</span>
+      <button class="mini" id="octDown" aria-label="Lower octave">−</button>
+      <span class="readout" id="octVal">0</span>
+      <button class="mini" id="octUp" aria-label="Raise octave">+</button>
+    </div>
+    <div class="ctrl">
+      <span class="label">tempo</span>
+      <input type="range" id="tempo" min="0" max="1" step="0.001" value="0.5">
+      <span class="readout tempo-val" id="tempoVal">80 bpm</span>
+    </div>
+    <button class="mini" id="resetBtn" aria-label="Reset tempo & octave" title="Reset">↺</button>
+  </div>
+
   <div class="actions">
     <button class="icon-btn" id="clearBtn" title="Clear">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -273,13 +364,13 @@ window.SOUNDFONT_READY = new Promise((resolve) => {
 "use strict";
 
 // ============================================================
-// Config — deliberately fixed. The whole point of this rewrite
-// is to not have knobs.
+// Config — mostly fixed, two small knobs for tempo and octave.
 // ============================================================
-const DURATION = 1.5;                              // seconds per sequence
 const COLS = 16;                                   // time slots
 const SCALE_MIDI = [48, 51, 53, 55, 58, 60, 63, 65, 67, 70]; // C pentatonic minor, 2 octaves (low→high)
 const ROWS = SCALE_MIDI.length;
+const OCT_MIN = -2, OCT_MAX = 2;
+const TEMPO_SLOW = 2.5, TEMPO_FAST = 0.5;          // seconds per sequence at slider ends
 
 const INSTRUMENTS = [
   { key: "marimba",           name: "Marimba",    color: "#1f6473", release: 0.7  },
@@ -297,6 +388,8 @@ const instrumentByKey = Object.fromEntries(INSTRUMENTS.map(i => [i.key, i]));
 const state = {
   dots: [],                                // { col, row, key }
   active: INSTRUMENTS[0].key,
+  duration: 1.5,                           // seconds per sequence (tempo)
+  octaveShift: 0,                          // −2..+2 octaves
 };
 
 // ============================================================
@@ -549,11 +642,11 @@ function schedule(ctx, dest, dots){
     let j = i + 1;
     while (j < sorted.length && sorted[j].col === d.col) j++;
     const nextCol = j < sorted.length ? sorted[j].col : COLS;
-    const tStart = t0 + (d.col / COLS) * DURATION;
-    const tSustainEnd = t0 + (nextCol / COLS) * DURATION;
+    const tStart = t0 + (d.col / COLS) * state.duration;
+    const tSustainEnd = t0 + (nextCol / COLS) * state.duration;
     const inst = instrumentByKey[d.key];
     const tEnd = tSustainEnd + (inst?.release ?? 0.5);
-    voices.push(spawnVoice(ctx, dest, d.key, SCALE_MIDI[d.row], tStart, tSustainEnd, tEnd));
+    voices.push(spawnVoice(ctx, dest, d.key, SCALE_MIDI[d.row] + state.octaveShift * 12, tStart, tSustainEnd, tEnd));
   }
   return voices;
 }
@@ -566,7 +659,7 @@ const play = {
   startCtxTime: 0,
   voices: [],
   raf: 0,
-  elapsedT(){ if (!audio) return -1; return (audio.ctx.currentTime - this.startCtxTime) / DURATION; }
+  elapsedT(){ if (!audio) return -1; return (audio.ctx.currentTime - this.startCtxTime) / state.duration; }
 };
 
 async function startPlayback(){
@@ -591,7 +684,7 @@ async function startPlayback(){
   const tick = () => {
     if (!play.running) return;
     draw();
-    if (play.elapsedT() >= 1 + maxRelease / DURATION){ stopPlayback(); return; }
+    if (play.elapsedT() >= 1 + maxRelease / state.duration){ stopPlayback(); return; }
     play.raf = requestAnimationFrame(tick);
   };
   play.raf = requestAnimationFrame(tick);
@@ -622,6 +715,35 @@ document.getElementById("playBtn").addEventListener("click", () => {
 document.getElementById("clearBtn").addEventListener("click", () => {
   state.dots = []; draw();
 });
+function updateOctReadout(){
+  const v = state.octaveShift;
+  document.getElementById("octVal").textContent = v > 0 ? "+" + v : String(v);
+}
+function updateTempoReadout(){
+  // Treat the 16-cell sequence as 2 beats, so 1.5s → 80 BPM (classic default).
+  const bpm = Math.round(120 / state.duration);
+  document.getElementById("tempoVal").textContent = bpm + " bpm";
+}
+document.getElementById("octDown").addEventListener("click", () => {
+  state.octaveShift = Math.max(OCT_MIN, state.octaveShift - 1);
+  updateOctReadout();
+});
+document.getElementById("octUp").addEventListener("click", () => {
+  state.octaveShift = Math.min(OCT_MAX, state.octaveShift + 1);
+  updateOctReadout();
+});
+document.getElementById("tempo").addEventListener("input", (e) => {
+  // Slider 0 → slow, 1 → fast. Linear so middle = 1.5s, matching the default.
+  state.duration = TEMPO_SLOW - (TEMPO_SLOW - TEMPO_FAST) * (+e.target.value);
+  updateTempoReadout();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  state.octaveShift = 0;
+  state.duration = 1.5;
+  document.getElementById("tempo").value = 0.5;
+  updateOctReadout();
+  updateTempoReadout();
+});
 
 // ============================================================
 // WAV export (offline render)
@@ -632,7 +754,7 @@ async function exportWAV(){
   try {
     const sr = 44100;
     const maxRel = Math.max(...INSTRUMENTS.map(i => i.release));
-    const lenSec = DURATION + maxRel + 0.2;
+    const lenSec = state.duration + maxRel + 0.2;
     const off = new OfflineAudioContext(2, Math.ceil(sr * lenSec), sr);
 
     const master = off.createGain();

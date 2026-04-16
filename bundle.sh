@@ -31,4 +31,4 @@ echo
 echo "Done. Size:"
 du -sh vendor soundfonts
 echo
-echo "To share: zip -r SoundsBlocks.zip index.html vendor soundfonts"
+echo "To share: zip -r sounds.zip index.html vendor soundfonts"
